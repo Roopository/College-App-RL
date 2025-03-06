@@ -32,10 +32,57 @@ class Applicant:
                 return self.quality / 8
         
     def PrejectOffer(self):
-        #Add more accutate later p_a(x_a)
+        #Add more accurate later p_a(x_a)
         if self.accepted == 1:
             return self.quality / 4
+
+
+
+
+class AcceptanceDecisionEnv(gym.Env):
+    def __init__(self, applicants=100, betas=[]):
+        super(AcceptanceDecisionEnv, self).__init__()
+
+        self.tApplicants = applicants
+        self.tEpochs = 10
+        self.currentEpoch = 0
+
+        self.maxScholarship = 35000 #F
+        self.maxCapacity = 100 #S
+        self.marginalCost = 71 #C_s
+        self.betas = betas #Beta values for diversity values correspond to xValues of same index
+        self.xMeans = [] # Values to compare the characteristic values in objective (x_a bar)
+
+        self.observation_space = spaces.Box(
+            low=np.array([0.0] + [0] * (len(betas) - 1)),
+            high=np.array([1.0] + [1] * (len(betas) - 1)),
+            dtype=np.float32
+        )
+
+        self.action_space = spaces.Tuple(
+            spaces.Discrete(2),
+            spaces.Box(0.0, self.maxScholarship, (1,), dtype=np.float32)
+        )
+
+    def reset(self):
+        return
+    def step(self, action):
+        return
+    def _generate_state(self):
+        return
+    def render(self, mode='human'):
+        return
+    def close(self):
+        return
+
+
+
+
         
+
+
+
+
 
     
 
@@ -43,11 +90,7 @@ def main():
 
     #Model variables and constants
 
-    maxScholarship = 35000 #F
-    maxCapacity = 100 #S
-    marginalCost = 71 #C_s
-    betas = [] #Beta values for diversity values correspond to xValues of same index
-    xMeans = [] # Values to compare the characteristic values in objective (x_a bar)
+    
 
     #Establish model and agent
 
