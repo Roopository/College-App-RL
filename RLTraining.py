@@ -41,6 +41,10 @@ class Applicant:
             return True
         else:
             return False
+        
+    def printAll(self):
+        print("Applicant: ")
+        print("Age: ", self.age, "Gender: ", ["Female", "Male"][self.gender], "Quality: ", self.quality)
 
 # Takes in the information on the distribution and gives out the list of candidates
 # taken in period and the total number of candidates
@@ -137,7 +141,10 @@ class AcceptanceDecisionEnv(gymnasium.Env):
         self.ACCEPTED = []
         self.currentEpoch = 0
         np.random.shuffle(self.APPLICANTS)
-        first = self.APPLICANTS[self.currentEpoch][0]
+        if self.APPLICANTS[self.currentEpoch]:
+            first = self.APPLICANTS[self.currentEpoch][0]
+        else:
+            first = self.findNext()
         self.state = np.array(first.xValues)
         return self.state, {} #Return the first element that the model is going to analyze with step()
     
@@ -148,11 +155,12 @@ class AcceptanceDecisionEnv(gymnasium.Env):
         while not nextOb:
             if self.checkWL == False:
                 if self.APPLICANTS[self.currentEpoch]:
-                    nextOb = self.APPLICANTS[self.currentEpoch]
+                    nextOb = self.APPLICANTS[self.currentEpoch][0]
                 else: 
+                    self.WLIndex = 0
                     self.checkWL = True
                     if self.WAITLIST:
-                        nextOb = self.WAITLIST[0]
+                        nextOb = self.WAITLIST[self.WLIndex]
                     else:
                         _, _ = self.endofEpoch()
 
@@ -162,14 +170,23 @@ class AcceptanceDecisionEnv(gymnasium.Env):
     def endofEpoch(self):
         terminated = False
         reward = 0
+
+        i, j = 0, 0
+        while i < len(self.ACCEPTED):
+            if self.ACCEPTED[i].PrejectOffer():
+                self.ACCEPTED.pop(i)
+            else:
+                i += 1
+        while j < len(self.WAITLIST):
+            if self.WAITLIST[j].Pdisappear():
+                self.WAITLIST.pop(j)
+            else:
+                j += 1
+        
+
         self.checkWL = False
         self.currentEpoch += 1
-        for i in self.ACCEPTED:
-            if i.PrejectOffer():
-                self.ACCEPTED.pop(i)
-        for j in self.WAITLIST:
-            if j.Pdisappear():
-                self.WAITLIST.pop(j)
+        
         if self.currentEpoch == self.tEpochs:
             reward = self.calcObjReward()
             self.reset()
@@ -177,7 +194,13 @@ class AcceptanceDecisionEnv(gymnasium.Env):
 
         return reward, terminated
 
-
+    def printState(self, applicant: Applicant):
+        
+        return
+    
+    def printResult(self):
+        
+        return
 
     #Action is of form [0/1], [0.0-35000]
     def step(self, action):
@@ -215,9 +238,11 @@ class AcceptanceDecisionEnv(gymnasium.Env):
                 self.ACCEPTED.append(self.WAITLIST[self.WLIndex])
                 self.WAITLIST.pop(self.WLIndex)
                 reward = self.calcObjReward()
+            else:
+                self.WLIndex += 1
 
             if self.WLIndex < len(self.WAITLIST):
-                self.WLIndex += 1
+                nextElement = self.WAITLIST[self.WLIndex]
             else:
                 reward, terminated = self.endofEpoch()
                 nextElement = self.findNext()
@@ -228,7 +253,6 @@ class AcceptanceDecisionEnv(gymnasium.Env):
         return np.array(nextElement.xValues), reward, terminated, truncated, {}
 
         #Calculate new xMeans
-    
 
     #Don't need to change because they have no real functionality
     def render(self):
@@ -261,24 +285,9 @@ def main():
 
     model.learn(total_timesteps=10)
 
-    model.save(model)
+    model.save("ppo_model")
     
     return
 
 if __name__ == "__main__":
     main()
-
-
-
-# for i in acceptedOffer:
-#         objValue += (maxScholarship - i.scholarship)
-#         characterSum = i.xValues[0] * betas[0]
-#         for j in range(1, len(i.xValues)):
-#             characterSum += ((xMeans - i.xValues[j])**2) * betas[j]
-#         objValue += (1/len(acceptedOffer))* (characterSum)
-
-#     totalMarginalCost = 0
-#     if len(acceptedOffer > maxCapacity):
-#         totalMarginalCost += marginalCost * (acceptedOffer - maxCapacity)
-    
-#     objValue -= totalMarginalCost
