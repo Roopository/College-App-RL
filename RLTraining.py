@@ -27,21 +27,31 @@ class Applicant:
 
     def Pdisappear(self):
         #Add more accurate later v_a(x_a)
-        if self.quality < 0.5:
-            return 0
+        ppp = 0.0
+        if self.quality < 0.55:
+            ppp = 0.05
+        elif self.quality >= 0.55 and self.quality < 0.75:
+            ppp = 0.5
         else:
-            if np.random.choice(a=[0, 1], p=[1 - (self.quality / 8), self.quality / 8]) == 1:
-                return True
-            else:
-                return False
+            ppp = 0.8
+        pp = 1 - (1 - ppp) ** (1 / 10)
+        disappear = np.random.choice(a=[True, False], p=[pp, 1 - pp])
+        return disappear
         
     def PrejectOffer(self):
         #Add more accutate later p_a(x_a)
-        if np.random.choice(a=[0, 1], p=[1 - (self.quality**1.5 / 20 + (1 - self.scholarship/35000) * (1/4)), self.quality**1.5 / 20 + (1 - self.scholarship/35000) * (1/4)]) == 1:
-            return True
+        ppp = 0.0
+        if self.quality >= 0.8:
+            ppp = (self.quality - 0.8)*(0.75) + (1 - (self.scholarship/35000))*(0.4) + 0.25
+        elif self.quality < 0.8 and self.quality > 0.6:
+            ppp = (self.quality - 0.6)*(0.5) + (1 - (self.scholarship/35000))*(0.4) + 0.1
         else:
-            return False
-        
+            ppp = .95
+
+        pp = 1 - (1 - ppp) ** (1 / 10)
+        leave = np.random.choice(a=[True, False], p=[pp, 1-pp])
+        return leave
+    
     def printAll(self):
         print("Applicant: ")
         print("Age: ", self.age, "Gender: ", ["Female", "Male"][self.gender], "Quality: ", self.quality)
@@ -82,69 +92,82 @@ class AcceptanceDecisionEnv(gymnasium.Env):
     def __init__(self, betas=[]):
         super(AcceptanceDecisionEnv, self).__init__()
 
+        self.output = False
+        self.test = True
         #Variables
         self.tApplicants = 0
-        self.tEpochs = 10
+        
+        self.steps = 0
         
 
         #Timekeeping variables
         self.currentEpoch = 0
         self.checkWL = False
         self.WLIndex = 0
+        self.objValue = 0.0
 
 
-        self.avgAppsPerEpoch = 2
+        #Constants
+        self.tEpochs = 10
+        self.avgAppsPerEpoch = 100
         self.maxScholarship = 35000 #F
-        self.maxCapacity = 100 #S
-        self.marginalCost = 71 #C_s
+        self.maxCapacity = 20 #S
+        self.marginalCost = 300000 #C_s
         self.betas = betas #Beta values for diversity values correspond to xValues of same index
         self.xMeans = [] # Values to compare the characteristic values in objective (x_a bar)
 
+        #Lists that need to be cleared each time
         self.APPLICANTS = []
         self.WAITLIST = []
         self.ACCEPTED = []
-
-
-        self.state = np.array([0, 0, 0, 0, 0])
-
-        #Setup for counting time periods
         self.pplPerEpoch = []
 
-        self.objValue = 0.0
 
+        #Change by themselves
+        self.state = np.array([0, 0, 0, 0, 0])
         self.xMeans = np.array([0, 0, 0, 0, 0])
 
         
-
+        #Observations
         self.observation_space = spaces.Box(
             low=np.array([0.0] + [0] * (len(betas) - 1)),
             high=np.array([1.0] + [1] * (len(betas) - 1)),
             dtype=np.float64
         )
 
-        # self.action_space = spaces.Tuple((
-        #     spaces.Discrete(2),
-        #     spaces.Box(0.0, self.maxScholarship, (1,), dtype=np.float32)
-        # ))
+        #Actions
         self.action_space = spaces.MultiDiscrete([2, self.maxScholarship])
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
+
+        self.steps = 0
+
+        self.WAITLIST = []
+        self.ACCEPTED = []
+        self.APPLICANTS = []
+        self.pplPerEpoch = []
+        
+        self.currentEpoch = 0
+        self.reward = 0
+        self.WLIndex = 0
+        self.checkWL = False
+        self.objValue = 0.0
+
         self.pplPerEpoch, self.tApplicants = applyDist(self.avgAppsPerEpoch, self.tEpochs)
         allApplicants = individualDist(self.tApplicants)
+
+        np.random.shuffle(allApplicants)
 
         for ep in self.pplPerEpoch:
             self.APPLICANTS.append(allApplicants[:ep])
             allApplicants = allApplicants[ep:]
          
-        self.WAITLIST = []
-        self.ACCEPTED = []
-        self.currentEpoch = 0
-        np.random.shuffle(self.APPLICANTS)
+        
         if self.APPLICANTS[self.currentEpoch]:
             first = self.APPLICANTS[self.currentEpoch][0]
         else:
-            first = self.findNext()
+            first, _ = self.findNext()
         self.state = np.array(first.xValues)
         return self.state, {} #Return the first element that the model is going to analyze with step()
     
@@ -152,19 +175,25 @@ class AcceptanceDecisionEnv(gymnasium.Env):
 
     def findNext(self):
         nextOb = None
+        terminated = False
         while not nextOb:
             if self.checkWL == False:
-                if self.APPLICANTS[self.currentEpoch]:
-                    nextOb = self.APPLICANTS[self.currentEpoch][0]
-                else: 
-                    self.WLIndex = 0
-                    self.checkWL = True
-                    if self.WAITLIST:
-                        nextOb = self.WAITLIST[self.WLIndex]
-                    else:
-                        _, _ = self.endofEpoch()
+                if self.currentEpoch < self.tEpochs:
+                    if self.APPLICANTS[self.currentEpoch]:
+                        nextOb = self.APPLICANTS[self.currentEpoch][0]
+                    else: 
+                        self.WLIndex = 0
+                        self.checkWL = True
+                        if self.WAITLIST:
+                            nextOb = self.WAITLIST[self.WLIndex]
+                        else:
+                            _, _ = self.endofEpoch()
+                else:
+                    terminated = True
+                    break
+            
 
-        return nextOb
+        return nextOb, terminated
     
 
     def endofEpoch(self):
@@ -188,27 +217,51 @@ class AcceptanceDecisionEnv(gymnasium.Env):
         self.currentEpoch += 1
         
         if self.currentEpoch == self.tEpochs:
+            print("EPOCH", self.currentEpoch)
             reward = self.calcObjReward()
-            self.reset()
             terminated = True
 
         return reward, terminated
 
+    #Used to print the in each step() to see selected applicant
     def printState(self, applicant: Applicant):
-        
+        applicant.printAll()
+        print(["APPLIED", "WAITLIST"][self.checkWL])
+        print("Step: ", self.steps)
+        print("Epoch: ", self.currentEpoch)
         return
+
+    def printAction(self, action):
+        decision, scholarship = action
+        print(["REJECTED", "ACCEPTED " + str(scholarship)][decision])
     
     def printResult(self):
+        for acc in self.ACCEPTED:
+            acc.printAll()
+            print("Scholarship: ", acc.scholarship)
         
+        print("TOTAL ACCEPTED: ", len(self.ACCEPTED))
+        print("LEFT IN WAITLIST: ", len(self.WAITLIST))
+
+        bezero = 0
+        for a in self.APPLICANTS:
+            bezero += len(a)
+        print("Applicants left: ", bezero)
+        _ = self.calcObjReward()
+        print("TOTAL ENDING OBJECTIVE:", self.objValue)
         return
 
     #Action is of form [0/1], [0.0-35000]
     def step(self, action):
         #BASED ON STATE WHICH IS AN APPLICANT ADD TO EITHER OF THE LISTS
+        self.steps += 1
         decision, scholarship = action
         reward = 0
         terminated = False
         truncated = False
+
+        if self.output:
+            self.printAction(action)
 
         nextElement = None
         if not self.checkWL:
@@ -228,10 +281,10 @@ class AcceptanceDecisionEnv(gymnasium.Env):
                     nextElement = self.WAITLIST[self.WLIndex]
                 else:
                     reward, terminated = self.endofEpoch()
-                    nextElement = self.findNext()
+                    if not terminated:
+                        nextElement, terminated = self.findNext()
             else:
                 nextElement = self.APPLICANTS[self.currentEpoch][0]
-
         else:
             if decision == 1:
                 self.WAITLIST[self.WLIndex].scholarship = scholarship
@@ -245,11 +298,19 @@ class AcceptanceDecisionEnv(gymnasium.Env):
                 nextElement = self.WAITLIST[self.WLIndex]
             else:
                 reward, terminated = self.endofEpoch()
-                nextElement = self.findNext()
-        
+                if not terminated:
+                    nextElement, terminated = self.findNext()
+
+        if terminated:
+            if self.test:
+                self.printResult()
+            self.reset()
+            nextElement = None
         if nextElement is None:
             return np.zeros(len(self.state)), reward, terminated, truncated, {}
         
+        if self.output:
+            self.printState(nextElement)
         return np.array(nextElement.xValues), reward, terminated, truncated, {}
 
         #Calculate new xMeans
@@ -262,13 +323,14 @@ class AcceptanceDecisionEnv(gymnasium.Env):
 
     def calcObjReward(self):
         lastObj = self.objValue
+        self.objValue = 0
         for i in self.ACCEPTED:
             self.objValue += (self.maxScholarship - i.scholarship)
             characterSum = i.xValues[0] * self.betas[0]
             for j in range(1, len(i.xValues)):
                 characterSum += ((self.xMeans[j] - i.xValues[j])**2) * self.betas[j]
             self.objValue += (1/len(self.ACCEPTED)) * (characterSum)
-
+        
         totalMarginalCost = 0
         if len(self.ACCEPTED) > self.maxCapacity:
             totalMarginalCost += self.marginalCost * (len(self.ACCEPTED) - self.maxCapacity)
@@ -281,9 +343,12 @@ def main():
 
     env = AcceptanceDecisionEnv(betas=[5.0, 0.5, 0.5, 0.5, 0.5])
 
+    
     model = sb3.PPO("MlpPolicy", env=env, verbose=1)
 
-    model.learn(total_timesteps=10)
+    #model = sb3.PPO.load("ppo_model", env=env)
+
+    model.learn(total_timesteps=25000)
 
     model.save("ppo_model")
     
