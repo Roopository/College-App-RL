@@ -111,7 +111,7 @@ class AcceptanceDecisionEnv(gymnasium.Env):
         self.tEpochs = 10
         self.avgAppsPerEpoch = 100
         self.maxScholarship = 35000 #F
-        self.maxCapacity = 20 #S
+        self.maxCapacity = 100 #S
         self.marginalCost = 300000 #C_s
         self.betas = betas #Beta values for diversity values correspond to xValues of same index
         self.xMeans = [] # Values to compare the characteristic values in objective (x_a bar)
@@ -129,9 +129,16 @@ class AcceptanceDecisionEnv(gymnasium.Env):
 
         
         #Observations
+        # self.observation_space = spaces.Box(
+        #     low=np.array([0.0] + [0] * (len(betas) - 1)),
+        #     high=np.array([1.0] + [1] * (len(betas) - 1)),
+        #     dtype=np.float64
+        # )
+
+        #Works by being in order: ACCEPTED size, capacity, current epoch, total epochs, characteristics
         self.observation_space = spaces.Box(
-            low=np.array([0.0] + [0] * (len(betas) - 1)),
-            high=np.array([1.0] + [1] * (len(betas) - 1)),
+            low=np.array([0.0, self.maxCapacity, 0, self.tEpochs] + [0.0] * len(betas)),
+            high=np.array([self.maxCapacity, self.maxCapacity, self.tEpochs, self.tEpochs] + [1.0] * len(betas)),
             dtype=np.float64
         )
 
@@ -168,8 +175,8 @@ class AcceptanceDecisionEnv(gymnasium.Env):
             first = self.APPLICANTS[self.currentEpoch][0]
         else:
             first, _ = self.findNext()
-        self.state = np.array(first.xValues)
-        return self.state, {} #Return the first element that the model is going to analyze with step()
+        tt = [len(self.ACCEPTED), self.maxCapacity, self.currentEpoch, self.tEpochs] + first.xValues
+        return np.array(tt, dtype=np.float64), {} #Return the first element that the model is going to analyze with step()
     
 
 
@@ -301,19 +308,25 @@ class AcceptanceDecisionEnv(gymnasium.Env):
                 if not terminated:
                     nextElement, terminated = self.findNext()
 
+
+        # if len(self.ACCEPTED) > 110:
+        #     terminated = True
+        
+
         if terminated:
             if self.test:
                 self.printResult()
             self.reset()
             nextElement = None
         if nextElement is None:
-            return np.zeros(len(self.state)), reward, terminated, truncated, {}
+            return np.zeros(9), reward, terminated, truncated, {}
         
         if self.output:
             self.printState(nextElement)
-        return np.array(nextElement.xValues), reward, terminated, truncated, {}
 
-        #Calculate new xMeans
+        tt = [len(self.ACCEPTED), self.maxCapacity, self.currentEpoch, self.tEpochs] + nextElement.xValues
+        
+        return np.array(tt, dtype=np.float64), reward, terminated, truncated, {}
 
     #Don't need to change because they have no real functionality
     def render(self):
@@ -321,14 +334,30 @@ class AcceptanceDecisionEnv(gymnasium.Env):
     def close(self):
         return
 
+    # def calcObjReward(self):
+    #     lastObj = self.objValue
+    #     self.objValue = 0
+    #     for i in self.ACCEPTED:
+    #         self.objValue += (self.maxScholarship - i.scholarship)
+    #         characterSum = i.xValues[0] * self.betas[0]
+    #         for j in range(1, len(i.xValues)):
+    #             characterSum += ((self.xMeans[j] - i.xValues[j])**2) * self.betas[j]
+    #         self.objValue += (1/len(self.ACCEPTED)) * (characterSum)
+        
+    #     totalMarginalCost = 0
+    #     if len(self.ACCEPTED) > self.maxCapacity:
+    #         totalMarginalCost += self.marginalCost * (len(self.ACCEPTED) - self.maxCapacity)
+    #     self.objValue -= totalMarginalCost
+    #     return self.objValue - lastObj
+    
     def calcObjReward(self):
         lastObj = self.objValue
         self.objValue = 0
         for i in self.ACCEPTED:
             self.objValue += (self.maxScholarship - i.scholarship)
-            characterSum = i.xValues[0] * self.betas[0]
+            characterSum = ((8 * (i.xValues[0] - 0.7))**7) * self.betas[0]
             for j in range(1, len(i.xValues)):
-                characterSum += ((self.xMeans[j] - i.xValues[j])**2) * self.betas[j]
+                characterSum += ((10 * (self.xMeans[j] - i.xValues[j]))**2) * self.betas[j]
             self.objValue += (1/len(self.ACCEPTED)) * (characterSum)
         
         totalMarginalCost = 0
@@ -341,14 +370,14 @@ class AcceptanceDecisionEnv(gymnasium.Env):
 
 def main():
 
-    env = AcceptanceDecisionEnv(betas=[5.0, 0.5, 0.5, 0.5, 0.5])
+    env = AcceptanceDecisionEnv(betas=[1000, 50, 50, 50, 50])
 
     
-    model = sb3.PPO("MlpPolicy", env=env, verbose=1)
+    #model = sb3.PPO("MlpPolicy", env=env, verbose=1)
 
-    #model = sb3.PPO.load("ppo_model", env=env)
+    model = sb3.PPO.load("ppo_model", env=env)
 
-    model.learn(total_timesteps=25000)
+    model.learn(total_timesteps=30000)
 
     model.save("ppo_model")
     
